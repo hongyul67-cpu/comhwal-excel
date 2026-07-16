@@ -268,4 +268,23 @@ window.XL_PROBLEMS = [
     grid: [['제품', '판매', '전체', '비율'], ['A', 45, 180, null]], target: 'D2',
     prompt: "판매[B2]가 전체[C2]에서 차지하는 <b>비율(%)을 정수 반올림</b>하여 [D2]에 구하시오.",
     answer: '=ROUND(B2/C2*100,0)', hint: 'B2/C2*100 후 ROUND(...,0)' },
+
+  /* ───────── 날짜 함수 ───────── */
+  { id: 'year1', cat: '날짜(YEAR·MONTH)', title: '입사 연도',
+    grid: [['이름', '입사일', '입사년도'], ['김하나', '2015-03-02', null]], target: 'C2',
+    prompt: "입사일[B2]에서 <b>연도</b>만 뽑아 [C2]에 표시하시오.", answer: '=YEAR(B2)', hint: 'YEAR(날짜)' },
+  { id: 'month1', cat: '날짜(YEAR·MONTH)', title: '출고 월',
+    grid: [['제품', '출고일', '출고월'], ['노트북', '2024-07-16', null]], target: 'C2',
+    prompt: "출고일[B2]에서 <b>월</b>만 뽑아 [C2]에 표시하시오.", answer: '=MONTH(B2)', hint: 'MONTH(날짜)' },
+  { id: 'yeardiff', cat: '날짜(YEAR·MONTH)', title: '근속 연수',
+    grid: [['이름', '입사일', '기준일', '근속연수'], ['이두리', '2015-03-02', '2024-03-02', null]], target: 'D2',
+    prompt: "기준일[C2]과 입사일[B2]의 <b>연도 차이</b>로 근속연수를 [D2]에 구하시오.",
+    answer: '=YEAR(C2)-YEAR(B2)', hint: 'YEAR(기준일)-YEAR(입사일)' },
+  { id: 'weekday1', cat: '날짜(WEEKDAY)', title: '주말/평일 판정',
+    grid: [['날짜', '구분'], ['2024-07-20', null]], target: 'B2',
+    prompt: "날짜[A2]가 <b>토·일이면 \"주말\"</b>, 아니면 <b>\"평일\"</b>을 [B2]에 표시하시오. (WEEKDAY 두 번째 인수 <b>2</b> 사용: 월=1 … 토=6, 일=7)",
+    answer: '=IF(WEEKDAY(A2,2)>=6,"주말","평일")', hint: 'WEEKDAY(날짜,2)가 6 이상이면 토·일.' },
+  { id: 'date1', cat: '날짜(DATE)', title: '날짜 만들기',
+    grid: [['년', '월', '일', '날짜'], [2024, 7, 16, null]], target: 'D2',
+    prompt: "년[A2]·월[B2]·일[C2]을 합쳐 <b>날짜</b>를 [D2]에 만드시오.", answer: '=DATE(A2,B2,C2)', hint: 'DATE(년, 월, 일)' },
 ];

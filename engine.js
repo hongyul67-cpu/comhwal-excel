@@ -161,6 +161,15 @@
     (function rec(x) { if (Array.isArray(x)) x.forEach(rec); else out.push(x); })(v);
     return out;
   }
+  function p2(n) { return (n < 10 ? '0' : '') + n; }
+  function parseDate(v) { // "2024-03-15" / "2024/3/5" 형태를 Date로
+    if (isErr(v) || v === null) return null;
+    if (v instanceof Date) return v;
+    var m = /^\s*(\d{4})[-\/.](\d{1,2})[-\/.](\d{1,2})\s*$/.exec(String(v));
+    if (!m) return null;
+    var d = new Date(+m[1], +m[2] - 1, +m[3]);
+    return isNaN(d.getTime()) ? null : d;
+  }
 
   /* ---------- 평가기 ---------- */
   function makeEval(grid) {
@@ -330,7 +339,23 @@
           }
           return mtype === 1 ? marr.length : new XErr(ERR.NA);
         }
-        case 'TODAY': case 'NOW': return new XErr(ERR.NA); // 날짜 함수는 채점 대상에서 제외
+        case 'YEAR': { var dy = parseDate(val(0)); return dy ? dy.getFullYear() : new XErr(ERR.VALUE); }
+        case 'MONTH': { var dm = parseDate(val(0)); return dm ? dm.getMonth() + 1 : new XErr(ERR.VALUE); }
+        case 'DAY': { var dd = parseDate(val(0)); return dd ? dd.getDate() : new XErr(ERR.VALUE); }
+        case 'WEEKDAY': {
+          var dw = parseDate(val(0)); if (!dw) return new XErr(ERR.VALUE);
+          var ty = A.length > 1 ? toNum(val(1)) : 1, w = dw.getDay(); // 0=일
+          if (ty === 2) return w === 0 ? 7 : w;        // 월=1 … 일=7
+          if (ty === 3) return w === 0 ? 6 : w - 1;    // 월=0 … 일=6
+          return w + 1;                                // 기본: 일=1 … 토=7
+        }
+        case 'DATE': {
+          var yy = toNum(val(0)), mm = toNum(val(1)), dd2 = toNum(val(2));
+          if (isErr(yy) || isErr(mm) || isErr(dd2)) return new XErr(ERR.VALUE);
+          var dt = new Date(yy, mm - 1, dd2);
+          return dt.getFullYear() + '-' + p2(dt.getMonth() + 1) + '-' + p2(dt.getDate());
+        }
+        case 'TODAY': case 'NOW': return new XErr(ERR.NA); // 오늘 날짜는 채점이 불가하여 제외
         default: return new XErr(ERR.NAME);
       }
     }
