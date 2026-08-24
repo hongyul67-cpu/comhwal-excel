@@ -1,10 +1,12 @@
 /* XLEngine - 간이 엑셀 수식 엔진 (컴활 실기 계산작업 연습용)
+ * ※ comhwal-excel(1급) / comhwal2-excel(2급) 두 저장소가 같은 파일을 쓴다.
+ *   1급 범위가 2급을 포함하므로 넓은 쪽에 맞춘다. 한쪽을 고치면 반드시 다른 쪽에도 복사할 것.
  * window.XLEngine.evaluate(formula, grid) -> { value } 또는 { error }
  *   grid: 2차원 배열 grid[row][col] (0-based). 빈 셀은 null.
  *   formula: "=IF(...)" 또는 "IF(...)"
  * 지원: 셀참조(A1,$A$1) / 범위(A1:B5) / + - * / ^ & 비교연산 / 배열수식
  *      IF AND OR NOT, SUM AVERAGE MAX MIN, COUNT COUNTA COUNTBLANK,
- *      COUNTIF SUMIF AVERAGEIF, ROUND ROUNDUP ROUNDDOWN INT MOD TRUNC ABS,
+ *      COUNTIF SUMIF AVERAGEIF, COUNTIFS SUMIFS AVERAGEIFS MAXIFS MINIFS, ROUND ROUNDUP ROUNDDOWN INT MOD TRUNC ABS,
  *      LEFT RIGHT MID LEN UPPER LOWER TRIM, VLOOKUP HLOOKUP INDEX MATCH CHOOSE,
  *      RANK RANK.EQ LARGE SMALL MEDIAN, IFERROR, CONCATENATE, POWER, SUMPRODUCT
  */
@@ -250,6 +252,52 @@
       return cmp('=', cell, cr);
     }
 
+    /* COUNTIFS 계열 도우미: (범위,조건) 쌍을 모으고, 모든 조건을 만족하는 위치를 돌려준다 */
+    function ifsPairs(A, val, from) {
+      var pairs = [], i;
+      for (i = from; i + 1 < A.length; i += 2) pairs.push({ r: flatten(val(i)), c: val(i + 1) });
+      if (!pairs.length) return new XErr(ERR.VALUE);
+      return pairs;
+    }
+    function ifsHits(pairs) {
+      var n = pairs[0].r.length, hits = [], i, j, ok;
+      for (i = 0; i < n; i++) {
+        ok = true;
+        for (j = 0; j < pairs.length; j++) if (!matchCrit(pairs[j].r[i], pairs[j].c)) { ok = false; break; }
+        if (ok) hits.push(i);
+      }
+      return hits;
+    }
+
+    /* ── 데이터베이스 함수 도우미 (DSUM/DAVERAGE/DCOUNT/DMAX/DMIN …) ──
+       database: 머리글 행을 포함한 2차원 범위
+       criteria: 머리글 행 + 조건 행. 같은 행 = AND, 다른 행 = OR (엑셀과 동일) */
+    function dbFieldIndex(db, fieldVal) {
+      if (typeof fieldVal === 'number') return fieldVal - 1;
+      var heads = db[0].map(function (x) { return toStr(x).trim().toUpperCase(); });
+      return heads.indexOf(toStr(fieldVal).trim().toUpperCase());
+    }
+    function dbFilter(db, crit) {
+      var heads = db[0].map(function (x) { return toStr(x).trim().toUpperCase(); });
+      var rows = db.slice(1);
+      var critHead = (crit[0] || []).map(function (x) { return toStr(x).trim().toUpperCase(); });
+      var critRows = crit.slice(1);
+      if (!critRows.length) return rows;
+      return rows.filter(function (row) {
+        return critRows.some(function (cr) {               // 행 사이는 OR
+          var used = 0, ok = true;
+          cr.forEach(function (cv, i) {
+            if (cv === null || cv === undefined || cv === '') return;
+            used++;
+            var ci = heads.indexOf(critHead[i]);
+            if (ci < 0) { ok = false; return; }
+            if (!matchCrit(row[ci], cv)) ok = false;        // 같은 행 안에서는 AND
+          });
+          return used ? ok : true;
+        });
+      });
+    }
+
     function evFunc(node) {
       var name = node.name, A = node.args;
       function val(i) { return ev(A[i]); }
@@ -279,6 +327,24 @@
         case 'COUNTIF': { var rg = flatten(val(0)), cr = val(1); return rg.filter(function (x) { return matchCrit(x, cr); }).length; }
         case 'SUMIF': { var rg1 = flatten(val(0)), cr1 = val(1), sr = A.length > 2 ? flatten(val(2)) : rg1; var s = 0; rg1.forEach(function (x, k) { if (matchCrit(x, cr1)) { var n = toNum(sr[k]); if (!isErr(n)) s += n; } }); return s; }
         case 'AVERAGEIF': { var rg2 = flatten(val(0)), cr2 = val(1), ar = A.length > 2 ? flatten(val(2)) : rg2; var sum = 0, cnt = 0; rg2.forEach(function (x, k) { if (matchCrit(x, cr2)) { var n = toNum(ar[k]); if (!isErr(n)) { sum += n; cnt++; } } }); return cnt ? sum / cnt : new XErr(ERR.DIV0); }
+        /* 다중 조건 — COUNTIFS(범위1,조건1, 범위2,조건2 …)
+           SUMIFS/AVERAGEIFS/MAXIFS/MINIFS 는 첫 인수가 '계산할 범위'이고 그 뒤가 조건 쌍이다. */
+        case 'COUNTIFS': {
+          var cs = ifsPairs(A, val, 0);
+          if (isErr(cs)) return cs;
+          return ifsHits(cs).length;
+        }
+        case 'SUMIFS': case 'AVERAGEIFS': case 'MAXIFS': case 'MINIFS': {
+          var target = flatten(val(0));
+          var cs2 = ifsPairs(A, val, 1);
+          if (isErr(cs2)) return cs2;
+          var picked = ifsHits(cs2).map(function (k) { return toNum(target[k]); })
+                                   .filter(function (x) { return !isErr(x) && x !== '' && x !== null; });
+          if (name === 'SUMIFS') return picked.reduce(function (a, b) { return a + b; }, 0);
+          if (!picked.length) return name === 'AVERAGEIFS' ? new XErr(ERR.DIV0) : 0;
+          if (name === 'AVERAGEIFS') return picked.reduce(function (a, b) { return a + b; }, 0) / picked.length;
+          return name === 'MAXIFS' ? Math.max.apply(null, picked) : Math.min.apply(null, picked);
+        }
         case 'ROUND': { var nv = toNum(val(0)), d = toNum(val(1)); var e4 = firstErr(nv, d); if (e4) return e4; var f = Math.pow(10, d); return Math.round(nv * f) / f; }
         case 'ROUNDUP': { var nv1 = toNum(val(0)), d1 = toNum(val(1)); var f1 = Math.pow(10, d1); return (nv1 >= 0 ? Math.ceil(nv1 * f1) : Math.floor(nv1 * f1)) / f1; }
         case 'ROUNDDOWN': case 'TRUNC': { var nv2 = toNum(val(0)), d2 = A.length > 1 ? toNum(val(1)) : 0; var f2 = Math.pow(10, d2); return (nv2 >= 0 ? Math.floor(nv2 * f2) : Math.ceil(nv2 * f2)) / f2; }
@@ -355,6 +421,54 @@
           var dt = new Date(yy, mm - 1, dd2);
           return dt.getFullYear() + '-' + p2(dt.getMonth() + 1) + '-' + p2(dt.getDate());
         }
+        case 'DAYS': { var de = parseDate(val(0)), ds = parseDate(val(1)); if (!de || !ds) return new XErr(ERR.VALUE); return Math.round((de - ds) / 86400000); }
+        case 'TIME': { var th = toNum(val(0)), tm = toNum(val(1)), ts = toNum(val(2)); return p2(th) + ':' + p2(tm) + ':' + p2(ts); }
+        case 'HOUR': { var ph = /(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?/.exec(toStr(val(0))); return ph ? Number(ph[1]) : new XErr(ERR.VALUE); }
+        case 'MINUTE': { var pm = /(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?/.exec(toStr(val(0))); return pm ? Number(pm[2]) : new XErr(ERR.VALUE); }
+        case 'SECOND': { var psec = /(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?/.exec(toStr(val(0))); return psec ? Number(psec[3] || 0) : new XErr(ERR.VALUE); }
+
+        /* ── 2급 출제범위 추가 함수 ── */
+        case 'PRODUCT': { var pn = nums(flatten(A.map(ev))); return pn.length ? pn.reduce(function (a, b) { return a * b; }, 1) : 0; }
+        case 'AVERAGEA': { var aa = flatten(A.map(ev)).filter(function (x) { return x !== null && x !== ''; })
+            .map(function (x) { var n = toNum(x); return isErr(n) ? (x === true ? 1 : 0) : n; });
+          if (!aa.length) return new XErr(ERR.DIV0); return aa.reduce(function (a, b) { return a + b; }, 0) / aa.length; }
+        case 'MODE': case 'MODE.SNGL': {
+          var mo = nums(flatten(A.map(ev))), cnt2 = {}, best = null, bc = 1;
+          mo.forEach(function (x) { cnt2[x] = (cnt2[x] || 0) + 1; if (cnt2[x] > bc) { bc = cnt2[x]; best = x; } });
+          return best === null ? new XErr(ERR.NA) : best;
+        }
+        case 'STDEV': case 'STDEV.S': case 'VAR': case 'VAR.S': {
+          var vs = nums(flatten(A.map(ev)));
+          if (vs.length < 2) return new XErr(ERR.DIV0);
+          var mean = vs.reduce(function (a, b) { return a + b; }, 0) / vs.length;
+          var variance = vs.reduce(function (a, b) { return a + (b - mean) * (b - mean); }, 0) / (vs.length - 1);
+          return (name === 'VAR' || name === 'VAR.S') ? variance : Math.sqrt(variance);
+        }
+        case 'REPLACE': { var rs = toStr(val(0)), rst = toNum(val(1)), rln = toNum(val(2)), rnew = toStr(val(3));
+          return rs.slice(0, rst - 1) + rnew + rs.slice(rst - 1 + rln); }
+        case 'FIND': { var fh = toStr(val(1)), fn2 = toStr(val(0)); var fp = fh.indexOf(fn2, A.length > 2 ? toNum(val(2)) - 1 : 0); return fp < 0 ? new XErr(ERR.VALUE) : fp + 1; }
+        case 'SEARCH': { var sh = toStr(val(1)).toUpperCase(), sn = toStr(val(0)).toUpperCase(); var sp = sh.indexOf(sn, A.length > 2 ? toNum(val(2)) - 1 : 0); return sp < 0 ? new XErr(ERR.VALUE) : sp + 1; }
+        case 'CONCAT': { return flatten(A.map(ev)).map(function (x) { return x === null ? '' : toStr(x); }).join(''); }
+        case 'TRUE': return true;
+        case 'FALSE': return false;
+
+        /* ── 데이터베이스 함수 ── */
+        case 'DSUM': case 'DAVERAGE': case 'DCOUNT': case 'DCOUNTA': case 'DMAX': case 'DMIN': {
+          var db = val(0), fieldV = val(1), crt = val(2);
+          if (!Array.isArray(db) || !Array.isArray(crt) || !Array.isArray(db[0]) || !Array.isArray(crt[0])) return new XErr(ERR.VALUE);
+          var fi = dbFieldIndex(db, Array.isArray(fieldV) ? flatten(fieldV)[0] : fieldV);
+          if (fi < 0) return new XErr(ERR.VALUE);
+          var hits = dbFilter(db, crt).map(function (row) { return row[fi]; });
+          if (name === 'DCOUNTA') return hits.filter(function (x) { return x !== null && x !== ''; }).length;
+          var dn = hits.filter(function (x) { return typeof x === 'number' || (typeof x === 'string' && x.trim() !== '' && !isNaN(Number(x))); }).map(Number);
+          if (name === 'DCOUNT') return dn.length;
+          if (!dn.length) return name === 'DSUM' ? 0 : new XErr(ERR.DIV0);
+          if (name === 'DSUM') return dn.reduce(function (a, b) { return a + b; }, 0);
+          if (name === 'DAVERAGE') return dn.reduce(function (a, b) { return a + b; }, 0) / dn.length;
+          if (name === 'DMAX') return Math.max.apply(null, dn);
+          return Math.min.apply(null, dn);
+        }
+
         case 'TODAY': case 'NOW': return new XErr(ERR.NA); // 오늘 날짜는 채점이 불가하여 제외
         default: return new XErr(ERR.NAME);
       }
