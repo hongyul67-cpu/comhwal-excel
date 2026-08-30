@@ -189,6 +189,16 @@ function checkAnswer() {
   var p = state.queue[state.idx];
   var raw = $('fx').value.trim();
   if (!raw) { flash('수식을 입력하세요. (예: =IF(...))', 'no'); return; }
+  /* 답을 값으로 그냥 적어 버리면(예: =15) 결과값이 같아 정답 처리되던 것을 막는다.
+     함수 연습이 목적이므로 셀 참조(A2, B2:B5)나 함수 호출( SUM( ... )이 하나도 없으면 채점하지 않는다.
+     "다른 수식이어도 결과가 맞으면 정답" 규칙은 그대로 둔다. */
+  var body = raw.replace(/^=/, '');
+  var hasRef = /\$?[A-Za-z]{1,3}\$?\d+/.test(body);       /* A2, $B$5 같은 셀 주소 */
+  var hasFunc = /[A-Za-z]{2,}\s*\(/.test(body);           /* SUM( , IF( 같은 함수 */
+  if (!hasRef && !hasFunc) {
+    flash('값을 그대로 적으면 안 돼요. <b>셀 주소나 함수</b>를 써서 수식으로 만들어 보세요. (예: =SUM(B2:B5))', 'no');
+    return;
+  }
   var stu = XLEngine.evaluate(raw, p.grid);
   var model = XLEngine.evaluate(p.answer, p.grid);
   if ('error' in stu) {
